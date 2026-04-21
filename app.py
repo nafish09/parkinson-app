@@ -4,19 +4,16 @@ import numpy as np
 import joblib
 from skimage.feature import hog, local_binary_pattern
 
-# Page config
-st.set_page_config(page_title="Parkinson Detection", layout="centered")
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="Parkinson Detection", page_icon="🧠")
 
-# Title
-st.title("Parkinson’s Disease Detection")
-st.write("Upload a drawing image to check if it indicates Parkinson’s disease.")
-
-# Load model
+# ---------------- LOAD ----------------
 model = joblib.load("model.pkl")
+scaler = joblib.load("scaler.pkl")
 
 IMG_SIZE = (128, 128)
 
-# Feature extraction (same as your training)
+# ---------------- FEATURE FUNCTION ----------------
 def extract_features(img):
     img = cv2.resize(img, IMG_SIZE)
 
@@ -30,42 +27,100 @@ def extract_features(img):
     edges = cv2.Canny(img,50,150)
     edge_density = np.sum(edges>0)/img.size
 
+    # must match training
     mean_intensity = np.mean(img)
     std_intensity = np.std(img)
 
-    return np.concatenate([hog_feat, hist,
-                           [edge_density, mean_intensity, std_intensity]])
+    return np.concatenate([
+        hog_feat,
+        hist,
+        [edge_density, mean_intensity, std_intensity]
+    ])
 
-# Upload
+# ---------------- STYLE ----------------
+st.markdown("""
+<style>
+.card {
+    padding: 20px;
+    border-radius: 12px;
+    background-color: #1e1e1e;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    margin-top: 10px;
+}
+.center {
+    text-align: center;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ---------------- HEADER ----------------
+st.markdown("<h1 class='center'>🧠 Parkinson’s Disease Detection</h1>", unsafe_allow_html=True)
+st.markdown("<p class='center'>Upload spiral, wave or drawing image</p>", unsafe_allow_html=True)
+st.markdown("---")
+
+# ---------------- UPLOAD ----------------
 uploaded_file = st.file_uploader("Upload Image", type=["jpg","png","jpeg"])
 
+# ---------------- MAIN ----------------
 if uploaded_file is not None:
 
-    # Read image
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     img = cv2.imdecode(file_bytes, cv2.IMREAD_GRAYSCALE)
 
-    st.image(img, caption="Uploaded Image", use_column_width=True)
-
-    # Extract features
-    features = extract_features(img)
-    features = features.reshape(1, -1)
-
-    # Predict
-    prediction = model.predict(features)[0]
-
-    # Probability (if available)
-    try:
-        prob = model.predict_proba(features)[0][1]
-    except:
-        prob = None
-
-    st.subheader("Result")
-
-    if prediction == 0:
-        st.success("Healthy")
+    if img is None:
+        st.error("Invalid image file")
     else:
-        st.error("Parkinson Detected")
+        # -------- PREVIEW --------
+        display_img = cv2.resize(img, (300, 300))
 
-    if prob is not None:
-        st.write(f"Confidence: {prob:.2f}")
+        st.markdown("<div class='card center'>", unsafe_allow_html=True)
+        st.image(display_img, caption="Preview", width=250)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        # -------- FEATURES --------
+        features = extract_features(img)
+        features = scaler.transform([features])
+
+        # -------- PREDICTION --------
+        with st.spinner("Analyzing image..."):
+            prediction = model.predict(features)[0]
+
+            try:
+                prob = model.predict_proba(features)[0][1]
+            except:
+                prob = None
+
+        st.markdown("---")
+
+        # -------- RESULT CARD --------
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+
+        if prediction == 0:
+            st.markdown("<h3 style='color:green;'>✅ Healthy</h3>", unsafe_allow_html=True)
+        else:
+            st.markdown("<h3 style='color:red;'>⚠️ Possible Parkinson’s Pattern Detected</h3>", unsafe_allow_html=True)
+
+        # -------- CONFIDENCE --------
+        if prob is not None:
+            confidence_percent = prob * 100
+
+            st.write("Confidence Level")
+            st.progress(float(prob))
+
+            if confidence_percent > 75:
+                st.success(f"{confidence_percent:.1f}% (High Confidence)")
+            elif confidence_percent > 55:
+                st.warning(f"{confidence_percent:.1f}% (Moderate Confidence)")
+            else:
+                st.error(f"{confidence_percent:.1f}% (Low Confidence)")
+
+            # -------- INTERPRETATION --------
+            if prediction == 1:
+                st.write("Model detected irregular stroke patterns typical of Parkinson’s drawings.")
+            else:
+                st.write("Drawing appears smooth and consistent with healthy patterns.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# ---------------- FOOTER ----------------
+st.markdown("---")
